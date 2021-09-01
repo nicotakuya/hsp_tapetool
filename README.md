@@ -2,7 +2,9 @@
 
 ## overview
 
-WAV - cas converter  for HSP3
+WAV - cas file converter  for HSP3
+
+## files
 
 '*.cas' is cassette tape image file of PC-6001/MSX emulator.
 
