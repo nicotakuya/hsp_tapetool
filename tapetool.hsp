@@ -1,0 +1,1584 @@
+// tapetool for HSP3
+// by takuya matsubara
+
+screen 0,1200,680,0,0,0:cls 4
+color 255,255,255
+
+bufmax = 50*1024*1024	// wav buffer size[byte]
+sdim wavbuff,bufmax		// WAV file buffer
+sdim txt,8
+
+gosub *initstrval
+
+gx=200.0:gy=16.0:gw=960.0:gh=256.0
+vl0 = gy
+vr0 = gy+gy+gh
+
+ofs = 0
+datalen =0
+headersize = 44	// WAV file header size
+
+binbufmax = 64*1024		// binary buffer size[byte]
+
+objsize 160,28
+objmax = 0
+x=8:y=8
+pos x,y
+button gosub "WAV file load",*wavload
+objmax++
+
+y += 32:pos x,y
+button gosub "WAV file save",*wavsave
+objmax++
+
+y += 64
+pos x,y
+print "POS"
+pos x+50,y
+input ofs,80,28,8
+objmax++
+id_ofs = (objmax-1)	// object ID
+
+y += 32:pos x,y
+button gosub "jump pos",*jump
+objmax++
+
+objsize 90,28
+y += 32
+pos x,y
+button gosub "<- scroll",*scroll_l
+objmax++
+
+pos x+90,y
+button gosub "scroll ->",*scroll_r
+objmax++
+
+y += 32:pos x,y:button gosub "FIND (1)",*scroll_r2
+objmax++
+y += 32:pos x,y:button gosub "FIND (0)",*scroll_r3
+objmax++
+y += 32:pos x,y:button gosub "FIND (no sound)",*scroll_r4
+objmax++
+objsize 160,28
+
+y += 64:pos x,y:button gosub "AUTO FIX VOLUME",*ampauto
+objmax++
+y += 32:pos x,y:button gosub "UP VOLUME",*amp
+objmax++
+y += 32:pos x,y:button gosub "DOWN VOLUME",*gensui
+objmax++
+y += 32:pos x,y:button gosub "INVERT LEVEL",*invert
+objmax++
+y += 32:pos x,y:button gosub "DELETE AREA",*delwav
+objmax++
+y += 32:pos x,y:button gosub "DELETE from START",*delwav2
+objmax++
+y += 32:pos x,y:button gosub "DELETE to LAST",*delwav3
+objmax++
+y += 32:pos x,y:button gosub "UP LEVEL↑",*levelup
+objmax++
+y += 32:pos x,y:button gosub "DOWN LEVEL↓",*leveldown
+objmax++
+
+x=200+(26*17)
+y=300
+pulsetype = 0	// type 0=PC-6001/1=MSX(1200bps)/2=MSX(2400bps)
+pos x,y
+print "Pulse Type"
+y += 20
+pos x,y
+listbox pulsetype,32,"PC-6001\nMSX(1200bps)\nMSX(2400bps)"
+objmax++
+
+y += 32
+y += 32
+pos x,y
+print "Convert"
+y += 20
+pos x,y
+button gosub "WAV→binary(cas)",*savecas
+objmax++
+
+if (0){	// support P6T file
+y += 32
+pos x,y
+button gosub "WAV→binary(p6t)",*savep6t
+objmax++
+
+y += 32
+pos x+8,y
+basmode=0
+combox basmode,32,"BASICMODE1\nBASICMODE2\nBASICMODE3\nBASICMODE4\nBASICMODE5"
+objmax++
+
+y += 32
+pos x+8,y
+baspage = 0
+combox baspage,32,"PAGE1\nPAGE2\nPAGE3\nPAGE4"
+objmax++
+}
+
+y += 16
+y += 32
+pos x,y
+button gosub "binary(cas)→WAV",*bin2wav
+objmax++
+
+gosub *status 
+gosub *drawgraph
+
+busy = 0
+dragx1 = -1
+dragx2 = -1
+dragflag =0
+repeat
+	stick key,256
+	x = mousex
+	y = mousey
+	if (busy==0) and (x>=gx) and (x<=gx+gw-1) and (y>=gy) and (y<=gy+gh-1) {
+		if (key and 256){	// left button
+			if dragflag==0{
+				dragflag = 1
+				dragx1 = x
+			}				
+			color 0,255,255
+			boxf dragx1,vl0,x,vl0+gh	// drag
+		}else{
+			if (dragflag==1){
+				dragflag = 0
+				dragx2 = x
+				gosub *drawgraph
+				if (dragx1 > dragx2){
+					tmp = dragx1
+					dragx1 = dragx2 
+					dragx2 = tmp
+				}
+				if abs(dragx1 - dragx2)<=2 {
+					// cancel
+					dragx1 = -1
+					dragx2 = -1
+				}
+				gosub *drawgrag
+			}
+		}
+	}
+	wait 15
+loop
+stop
+
+//----
+*drawgrag
+if (dragx1 == -1):return
+if (dragx2 == -1):return
+color 0,255,255
+line dragx1,vl0,dragx1,vl0+gh
+line dragx2,vl0,dragx2,vl0+gh
+line dragx1,vl0,dragx2,vl0
+line dragx1,vl0+gh,dragx2,vl0+gh
+return
+
+//----
+*boxline
+line bx,by,bx,by+bh-1
+line bx,by+bh-1,bx+bw-1,by+bh-1
+line bx+bw-1,by,bx+bw-1,by+bh-1
+line bx,by,bx+bw-1,by
+return
+
+//----
+*status
+x=920
+y=300
+w=180
+h=180
+color 120,120,20
+boxf x,y,x+w,y+h
+color 255,255,0
+pos x,y
+print "WAV file status"
+if (datalen==0):return
+print "file size  : "+str(wavfilesize)
+print "fmt size   : "+str(fmtsize)
+print "fmt id     : "+str(fmtid)
+print "channel    : "+str(channel)
+print "sample rate: "+str(srchz)+" Hz"
+print "Byte/s     : "+str(byteps)
+print "blocksize  : "+str(blocksize)
+print "data bit   : "+str(databit)
+print "data length: "+str(datalen)
+return
+//----draw graph
+*drawgraph
+if (ofs<0):ofs=0
+if (datalen>=gw){
+	if(ofs>((datalen-1)-gw)):ofs=(datalen-1)-gw
+}
+redraw 0
+x1=gx:y1=gy:x2=gx+gw:y2=gy+gh
+
+color 0,0,0
+boxf x1-100,y1-16,x2+100,y2+16
+color 96,96,96
+boxf x1-1,y1-1,x2+1,y2+1
+color 32,32,32
+boxf x1,y1,x2,y2
+color 255,0,0
+line x1,vl0+128,x2,vl0+128	
+
+color 0,255,0
+ptr = headersize+ofs
+x = x1
+repeat
+	if (datalen==0):break
+	datal = peek(wavbuff,ptr)
+	ptr++
+	line x,vl0+128,x,vl0+255-datal	
+	x++
+	if(x>=x2):break
+loop
+
+if (datalen>0){
+	sec = ofs*1000.0/byteps
+//	t=t+" pos="+str(msec)+"msec"
+//	t=t+"("+str(ofs)+"/"+str(datalen)+" Bytes)"
+	x = 8
+	y = 80
+	objprm id_ofs,ofs
+	color 0,0,64	
+	boxf x,y,x+150,y+20
+	color 255,255,0	
+	pos x,y
+	print str(sec)+"msec("+  strf("%d",100*ofs/datalen)+"%)"
+}
+title appname+" ["+fname+"]"
+gosub *drawgrag
+redraw 1
+return
+//----
+*jump
+gosub *busyon
+dragx1 = -1	//cancel
+dragx2 = -1
+gosub *drawgraph
+gosub *busyoff
+return
+//----right
+*scroll_r
+gosub *busyon
+ofs += gw
+dragx1 = -1	//cancel
+dragx2 = -1
+gosub *drawgraph
+gosub *busyoff
+return
+//---- find (1)
+*scroll_r2
+gosub *getpulsetype
+hz = hz_pi
+gosub *scroll_rx
+return
+//---- find (0)
+*scroll_r3
+gosub *getpulsetype
+hz = hz_ga
+gosub *scroll_rx
+return
+//----
+*scroll_rx
+gosub *busyon
+vlevel = -int(127/3)		// edge threshold(0-127)
+edge=0
+i = ofs
+repeat
+	if( i>=(datalen-1)):break
+	tmp = peek(wavbuff,headersize+i)-128
+	detect=0
+	if(vlevel>0)and(tmp >= vlevel):detect=1
+	if(vlevel<0)and(tmp <= vlevel):detect=1
+
+	if(edge==0){
+		if(detect){
+			detect=0
+			pstart = i
+			vlevel = -vlevel
+			edge++
+		}
+	}
+	if(edge==1){
+		if(detect){
+			detect=0
+			vlevel = -vlevel
+			edge++
+		}
+	}
+	if(edge==2){
+		if(detect){
+			detect=0
+			pend = i
+			pulsetime = pend-pstart
+
+			if(pulsetime <= 0):break	// fatal error
+			if(abs((srchz/pulsetime) - hz)< 600){
+				ofs = pstart-1
+				break
+			}
+			edge=0
+		}
+	}
+	i++
+loop
+dragx1 = -1	//cancel
+dragx2 = -1
+gosub *drawgraph
+gosub *busyoff
+return
+//----find no sound
+*scroll_r4
+gosub *getpulsetype
+gosub *busyon
+vlevel = int(127/3)	//edge threshold(0-127)
+i = ofs
+pulsetime = 0
+repeat
+	if( i>=(datalen-1)):break
+	tmp = peek(wavbuff,headersize+i)-128
+	if(abs(tmp)<vlevel){
+		pulsetime++
+		if(pulsetime > (srchz/(hz_ga/100))){	// 1/100sec no sound
+			ofs = i
+			break
+		}
+	}else{
+		pulsetime=0
+	}
+	i++
+loop
+dragx1 = -1	//cancel
+dragx2 = -1
+gosub *drawgraph
+gosub *busyoff
+return
+
+//----left
+*scroll_l
+gosub *busyon
+ofs -= gw
+dragx1 = -1	//cancel
+dragx2 = -1
+gosub *drawgraph
+gosub *busyoff
+return
+
+//----load WAV
+*wavload
+dialog "wav",16,"file"
+if(stat!=1):return
+
+fname = refstr
+bload fname,wavbuff,bufmax	//open wav data
+totalsize = strsize
+gosub *dumpcls
+ptr = 0
+gosub *gettxt         
+if (txt != "RIFF"){
+	dialog "format error:this file is not WAV format"
+	return
+}
+gosub *busyon
+gosub *getlong:wavfilesize=a+8	// +4:filesize
+gosub *gettxt         			// +8:WAV
+gosub *gettxt         			// +12:fmt 
+gosub *getlong:fmtsize=a 		// +16:fmtsize
+gosub *getword:fmtid=a   		// +20:fmt id
+gosub *getword:channel=a 		// +22:channel
+gosub *getlong:srchz=a   		// +24:frequency
+gosub *getlong:byteps=a     	// +28:Byte/sec
+gosub *getword:blocksize=a		// +32:block size
+gosub *getword:databit=a		// +34:databit 
+//+36:data
+delsize = 0
+for i,0,totalsize
+	if( (ptr+i+3)>=totalsize){
+		dialog "error:not found data chunk"
+		end
+	}
+	if (peek(wavbuff,ptr+i+0)==$64){	//d
+		if (peek(wavbuff,ptr+i+1)==$61){	//a
+			if (peek(wavbuff,ptr+i+2)==$74){	//t
+				if (peek(wavbuff,ptr+i+3)==$61){	//a
+					_break
+				}
+			}
+		}
+	}
+	delsize++
+next
+if (delsize>0){
+	title "無関係なデータを"+str(delsize)+"Bytes削除"
+	for i,0,totalsize
+		if (ptr+i+delsize)>=totalsize:_break
+		tmp=peek(wavbuff,ptr+i+delsize)
+		poke wavbuff,ptr+i,tmp
+	next
+}
+gosub *gettxt				//36:data
+gosub *getlong:datalen=a	//40:datalen
+gosub *status
+if (databit == 16){
+	if(channel==2){
+		title"convert 16bit stereo -> 8bit monaural"
+		dialog "convert 16bit stereo to 8bit monaural(left speaker only)."
+		for i,0,int(datalen/4)
+			tempptr = headersize+(i*4)
+//			tempptr +=2	//if right speaker
+			tmp = peek(wavbuff,tempptr+0) + (peek(wavbuff,tempptr+1)<<8)
+			if (tmp>=0x8000):tmp -= 0x10000
+//			tmp /= 64	//(本来は/256) 音がちいさすぎる対策
+			tmp /= 256	//8bit化
+			tmp += 128
+			if (tmp<0):tmp=0
+			if (tmp>255):tmp=255
+			poke wavbuff,headersize+i,int(tmp)
+		next
+		datalen = int(datalen/4)
+	}else{
+		title"convert 16bit -> 8bit"
+		dialog "convert 16bit monaural to 8bit."
+		for i,0,int(datalen/2)
+			tempptr = headersize+(i*2)
+			tmp = peek(wavbuff,tempptr) + (peek(wavbuff,tempptr+1)<<8)
+			if (tmp>=0x8000):tmp -= 0x10000
+//			tmp /= 64	//(本来は/256) 音がちいさすぎる対策
+			tmp /= 256	//8bit化
+			tmp += 128
+			if (tmp<0):tmp=0
+			if (tmp>255):tmp=255
+			poke wavbuff,headersize+i,int(tmp)
+		next
+		datalen = int(datalen/2)
+	}
+}else{
+	if(channel==2){
+		title"stereo to monaural"
+		dialog "data is 8bit stereo.left speaker only."
+		for i,0,int(datalen/2)
+			tempptr = headersize+(i*2)
+//			tempptr +=1	//if right speaker
+			tmp = peek(wavbuff,tempptr)
+			poke wavbuff,headersize+i,tmp
+		next
+		datalen = int(datalen/2)
+	}
+}
+fmtsize = 16	// format size
+databit = 8		// 8bit
+channel = 1		// monaural
+blocksize = 1	// block size
+byteps = srchz	// Byte/sec
+wavfilesize = headersize + datalen
+ofs = 0
+gosub *status
+gosub *drawgraph
+gosub *busyoff
+return
+//----
+*wavsave
+if (datalen==0):return
+if (fname=="noname"){
+	dialog "wav",17,"file"
+	if(stat!=1):return
+	fname = refstr
+}else{
+	dialog "save '"+fname+"'(Yes=Overwrite/No=Save as)",2,fname
+	if(stat==7){
+		dialog "wav",17,"file"
+		if(stat!=1):return
+		fname = refstr
+	}
+}
+// fix header
+ptr=4:a=wavfilesize-8:gosub *setlong	//file size
+ptr=16:a=fmtsize:gosub *setlong		//fmtsize
+ptr=22:a=channel:gosub *setword		//channel
+ptr=28:a=byteps:gosub *setlong		//Btyes/second
+ptr=32:a=blocksize:gosub *setword	//block size
+ptr=34:a=databit:gosub *setword		//data bit
+ptr=40:a=datalen:gosub *setlong		//Data Size
+
+if (instr(fname,0,".wav")<0) and (instr(fname,0,".WAV")<0) :fname +=".WAV"
+bsave fname,wavbuff,wavfilesize		//save wav file
+return
+//----
+*ampauto
+if (datalen==0){
+	dialog "no data"
+	return
+}
+gosub *busyon
+if (dragx1 == -1){
+	pstart = 0
+	pend = datalen-1
+}else{
+	pstart = ofs+(dragx1-gx)
+	pend = ofs+(dragx2-gx)
+}
+ave = 0.0
+samplecnt = 0
+for i,pstart,pend+1
+	ptr = headersize+i
+	tmp = abs(peek(wavbuff,ptr)-128)
+	if (tmp>2){	//no soundを除外
+		ave += tmp
+		samplecnt++
+		if(samplecnt>3000):_break
+	}
+next
+if (samplecnt==0){
+	mlt = 10 //倍率
+}else{
+	ave /= samplecnt	
+	mlt = 128.0/(1.25*ave)
+	dialog "ave. volume="+str(ave)+" gain="+str(mlt)
+}
+for i,pstart,pend+1
+	ptr = headersize+i
+	tmp = peek(wavbuff,ptr)
+	tmp -= 128
+	tmp *= mlt
+	tmp += 128
+	if (tmp<0):tmp=0
+	if (tmp>255):tmp=255
+	poke wavbuff,ptr,int(tmp)
+next
+gosub *status 
+gosub *drawgraph
+gosub *busyoff
+return
+//----
+*amp
+if (datalen==0){
+	dialog "no data"
+	return
+}
+gosub *busyon
+if (dragx1 == -1){
+	pstart = 0
+	pend = datalen-1
+}else{
+	pstart = ofs+(dragx1-gx)
+	pend = ofs+(dragx2-gx)
+}
+mlt = 2
+for i,pstart,pend+1
+	ptr = headersize+i
+	tmp = peek(wavbuff,ptr)
+	tmp -= 128
+	tmp *= mlt
+	tmp += 128
+	if (tmp<0):tmp=0
+	if (tmp>255):tmp=255
+	poke wavbuff,ptr,int(tmp)
+next
+gosub *status 
+gosub *drawgraph
+gosub *busyoff
+return
+//----
+*gensui
+if (datalen==0){
+	dialog "no data"
+	return
+}
+if (dragx1 == -1){
+	pstart = 0
+	pend = datalen-1
+}else{
+	pstart = ofs+(dragx1-gx)
+	pend = ofs+(dragx2-gx)
+}
+gosub *busyon
+for i,pstart,pend+1
+	ptr = headersize+i
+	tmp = peek(wavbuff,ptr)
+	tmp -= 128
+	tmp *= (2.0/3.0)
+	tmp += 128
+	poke wavbuff,ptr,int(tmp)
+next
+gosub *status 
+gosub *drawgraph
+gosub *busyoff
+return
+//----
+*invert
+if (datalen==0){
+	dialog "no data"
+	return
+}
+if (dragx1 == -1){
+	pstart = 0
+	pend = datalen-1
+}else{
+	pstart = ofs+(dragx1-gx)
+	pend = ofs+(dragx2-gx)
+}
+gosub *busyon
+for i,pstart,pend+1
+	ptr = headersize+i
+	tmp = peek(wavbuff,ptr)
+	tmp = 255-tmp
+	poke wavbuff,ptr,int(tmp)
+next
+gosub *status 
+gosub *drawgraph
+gosub *busyoff
+return
+//----
+*levelup
+if (datalen==0){
+	dialog "no data"
+	return
+}
+if (dragx1 == -1){
+	return
+}else{
+	pstart = ofs+(dragx1-gx)
+	pend = ofs+(dragx2-gx)
+}
+gosub *busyon
+for i,pstart,pend+1
+	ptr = headersize+i
+	tmp = 255
+	poke wavbuff,ptr,int(tmp)
+next
+gosub *status 
+gosub *drawgraph
+gosub *busyoff
+return
+//----
+*leveldown
+if (datalen==0){
+	dialog "no data"
+	return
+}
+if (dragx1 == -1){
+	return
+}else{
+	pstart = ofs+(dragx1-gx)
+	pend = ofs+(dragx2-gx)
+}
+gosub *busyon
+for i,pstart,pend+1
+	ptr = headersize+i
+	tmp=0
+	poke wavbuff,ptr,int(tmp)
+next
+gosub *status 
+gosub *drawgraph
+gosub *busyoff
+return
+
+//----
+*delwav
+if (datalen==0){
+	dialog "no data"
+	return
+}
+if (dragx1 == -1){
+	dialog "please drag area"
+	return
+}else{
+	pstart = ofs+(dragx1-gx)
+	pend = ofs+(dragx2-gx)
+}
+gosub *busyon
+for i,0,datalen
+	tmp = peek(wavbuff,headersize+pend+i)
+	poke wavbuff,headersize+pstart+i,int(tmp)
+	if (pend+i) >= (datalen-1):_break
+next
+datalen -= (pend-pstart)
+wavfilesize = headersize + datalen
+gosub *status 
+gosub *drawgraph
+gosub *busyoff
+return
+//----
+*delwav2
+if (datalen==0):return
+pstart = 0
+pend = ofs
+gosub *busyon
+for i,0,datalen
+	tmp = peek(wavbuff,headersize+pend+i)
+	poke wavbuff,headersize+pstart+i,int(tmp)
+	if (pend+i) >= (datalen-1):_break
+next
+datalen -= (pend-pstart)
+wavfilesize = headersize + datalen
+ofs = 0		//offset
+gosub *status 
+gosub *drawgraph
+gosub *busyoff
+return
+//----
+*delwav3
+if (datalen==0){
+	dialog "no data"
+	return
+}
+pstart = ofs
+pend = datalen-1
+gosub *busyon
+datalen -= (pend-pstart)
+wavfilesize = headersize + datalen
+gosub *status 
+gosub *drawgraph
+gosub *busyoff
+return
+//----text
+*gettxt
+poke txt,0,peek(wavbuff,ptr):	ptr++
+poke txt,1,peek(wavbuff,ptr):	ptr++
+poke txt,2,peek(wavbuff,ptr):	ptr++
+poke txt,3,peek(wavbuff,ptr):	ptr++
+poke txt,4,0
+return
+//-------long
+*getlong
+a = peek(wavbuff,ptr) :	ptr++
+a += (peek(wavbuff,ptr) << 8):	ptr++
+a += (peek(wavbuff,ptr) << 16):	ptr++
+a += (peek(wavbuff,ptr) << 24):	ptr++
+return
+//-------word
+*getword
+a = peek(wavbuff,ptr) :	ptr++
+a += (peek(wavbuff,ptr) << 8):	ptr++
+return
+//-------text
+*settxt
+poke wavbuff,ptr,peek(txt,0):	ptr++
+poke wavbuff,ptr,peek(txt,1):	ptr++
+poke wavbuff,ptr,peek(txt,2):	ptr++
+poke wavbuff,ptr,peek(txt,3):	ptr++
+return
+//-------long
+*setlong
+poke wavbuff,ptr,(a & 255):	ptr++
+poke wavbuff,ptr,((a >> 8) & 255):	ptr++
+poke wavbuff,ptr,((a >> 16) & 255):	ptr++
+poke wavbuff,ptr,((a >> 24) & 255):	ptr++
+return
+//-------word
+*setword
+poke wavbuff,ptr,(a & 255):	ptr++
+poke wavbuff,ptr,((a >> 8) & 255):	ptr++
+return
+//---
+*busyon
+busy=1
+title appname+" please wait..."
+gosub *busyxx
+return
+//---
+*busyoff
+busy=0
+gosub *busyxx
+return
+//---
+*busyxx
+for objnum,0,objmax
+	objenable objnum,(1-busy)
+next
+return
+//---- WAV -> binary(cas)
+*savecas
+filetype="cas"
+gosub *wav2bin
+return
+//---- WAV -> binary(P6T)
+*savep6t
+filetype="p6t"
+gosub *wav2bin
+return
+//---- convert WAV -> binary(cas)
+*wav2bin
+if (datalen==0){
+	dialog "no data"
+	return
+}
+sdim binbuff,binbufmax
+gosub *busyon
+gosub *clearlog
+txt="start"
+gosub *addlog
+
+nosound = 0.0	//no sound counter
+headercnt = 0.0
+dumpofs = -1 	//dump offset
+pstart = 0			// start pos
+pend = datalen-1	// end pos
+edge = 0
+pulsetime = 0
+bitcnt = -1.0
+workbyte = 0
+binptr = 0		// binary pointer
+
+gosub *getpulsetype
+
+threshold = (hz_pi + hz_ga)/2	//frequency threshold
+//threshold -= 300	//テープ伸び対策
+
+vlevel = -int(127/3)	// find edge threshold(0-127)
+// plus  : Rising egde
+// minus : Falling edge
+
+errcheck = 0 	// stopbit error(0=disable/1=enable)
+for i,pstart,pend+1
+	ptr = headersize+i
+	tmp = peek(wavbuff,ptr)-128
+	detect = 0
+	if(vlevel > 0)and(tmp >= vlevel):detect=1	// Rising egde
+	if(vlevel < 0)and(tmp <= vlevel):detect=1	// Falling edge
+
+	headercnt++
+	x = (i-ofs)	
+	if(edge==0){	// find egde1
+		if (detect){
+			detect=0
+			if(nosound > (srchz/10)){	// exist no sound
+				txt = "no sound:POS="+str(i)+":"+strf("%5.1f",nosound / srchz)+"sec"
+				gosub *addlog
+			}
+			vlevel = -vlevel
+			nosound = 0.0
+			pulsetime = 1
+			edge++
+		}else{
+			headercnt = 0.0
+			nosound++
+			_continue
+		}
+	}
+	if(edge==1){	// find edge2
+		if (detect){
+			detect=0
+			vlevel = -vlevel
+			edge++
+		}else{
+			pulsetime++
+			if(pulsetime > (srchz/(hz_ga/2))):edge=0	// too long
+			_continue
+		}
+	}
+	if(edge==2){	// find egde3
+		if(detect){
+			detect=0
+			edge++
+		}else{
+			pulsetime++
+			if(pulsetime > (srchz/(hz_ga/2))):edge=0	// too long
+			_continue
+		}
+	}
+	if(edge==3){	// 1 period
+		edge = 0
+		hz = srchz/pulsetime
+		if (hz < threshold){
+			bitdata = 0	//
+		}else{
+			bitdata = 1	//
+		}
+		if(abs(hz - threshold)<100){	//threshold +/-100Hz
+				txt= "Error:POS="+str(i)+":波形が不安定(please INVERT LEVEL)"
+				gosub *addlog
+				if((x>=0) and (x<gw)){
+					color 255,0,0						
+					boxf gx+x,2,gx+x-pulsetime,gy+gh+16
+				}
+		}
+		if (bitcnt==-1.0){	// find start bit
+			if(bitdata==0){	// start bit
+				bitcnt = 0.0	
+				workbyte = 0
+				if((x>=0) and (x<gw)){					//debug
+					color 128,128,0						//debug
+					boxf gx+x-(srchz/hz_ga),1,gx+x,gy-2	//debug
+				}										//debug
+				if(headercnt > srchz){
+					txt= "header:POS="+str(i)+":"+strf("%5.1f",headercnt / srchz)+"sec"
+					gosub *addlog
+					if(pulsetype > 0){	//MSX
+						for j,0,strlen(str_header)
+							workbyte = peek(str_header,j)
+							poke binbuff,binptr,workbyte
+							binptr++
+						next
+					}
+				}
+				headercnt = 0.0
+			}
+		}else{		// bit0-7
+			if((x>=0) and (x<gw)){					//debug
+				if(int(bitcnt)<8){					//debug
+					if(bitdata==1):color 128,128,128	//debug
+					if(bitdata==0):color 0,0,0			//debug
+				}else{								//debug
+					color 0,0,128					//debug
+				}									//debug
+				boxf gx+x-(srchz/hz_pi),1,gx+x,gy-2	//debug
+			}										//debug
+			if(bitdata==1){
+				workbyte |= (1<<int(bitcnt))
+				bitcnt += 0.5	// 0.5bit経過
+			}else{
+				bitcnt += 1.0	// 1bit経過
+			}
+			if(errcheck){	//stopbit error
+				if(int(bitcnt)>=9)and(bitdata==0){
+					txt= "error:POS="+str(i)+":stopbit error"
+					gosub *addlog
+				}
+			}
+			if (int(bitcnt)>=(8+stopbit)){	// get 1Byte
+				workbyte &= 0xff
+				if((x>=0) and (x<gw)){				
+					if(dumpofs==-1):dumpofs=binptr
+					color 0,255,255					//debug
+					pos gx+x-(srchz/hz_ga),gy+gh		//debug
+					print strf("%02X",workbyte)		//debug
+				}									
+				poke binbuff,binptr,workbyte
+				binptr++
+				bitcnt = -1.0	//find start bit
+			}
+		}
+	}
+next
+
+binptr = (int(binptr/128))*128	// fix data size
+txt= "binary size "+str(binptr)+"Bytes"
+gosub *addlog
+txt="end"
+gosub *addlog
+
+rawsize = binptr
+gosub *dumpcls
+gosub *dump
+
+title appname +" ["+fname+"]"
+dialog filetype,17,"file"
+if(stat==1){
+	binname = refstr
+	if filetype=="p6t"{
+		gosub *p6t_append
+		if (instr(fname,0,".p6t")<0)and(instr(fname,0,".P6T")<0): fname +=".P6T"
+	}
+	bsave binname,binbuff,binptr	//save bin data
+}
+
+gosub *busyoff
+sdim binbuff,1
+//gosub *drawgraph
+return
+//----
+*clearlog
+logx=640:logy=500
+color 50,50,50
+boxf logx,logy,logx+500,logy+160
+return
+//----
+*addlog
+if(logy >= (500+160)):return
+pos logx,logy
+color 0,255,128
+print txt
+logy += 20
+return
+
+//----
+*getpulsetype
+if(pulsetype==0){
+	stopbit = 3		// PC-6001
+	hz_pi = 2400
+	hz_ga = 1200
+}else{
+	stopbit = 2		// MSX
+	if(pulsetype==1){
+		hz_pi = 2400
+		hz_ga = 1200
+	}else{
+		hz_pi = 4800
+		hz_ga = 2400
+	}
+}
+return
+
+//----P6Tファイルのフッタ追加
+*p6t_append
+a=0x3650:gosub *setword2	// "P6"フッタ(36="6" 50="P")
+a=2:gosub *setbyte2			// P6T形式のバージョン
+a=1:gosub *setbyte2			// DATA block数
+a=0:gosub *setbyte2			// オートスタートフラグ(0:無効/1:有効)
+a=basmode+1:gosub *setbyte2	// BASIC mode
+a=baspage+1:gosub *setbyte2	// page
+a=0:gosub *setword2			// オートスタートコマンド文字数
+a=0:gosub *setword2			// 拡張情報サイズ
+
+a=0x4954:gosub *setword2	// "TI" DATA block(49="I",54="T")
+a=0:gosub *setbyte2			// ID number(DATA blockを関連付け)
+for i,0,16
+	a=0:gosub *setbyte2		// data name(15文字+'00H')
+next
+a=1200:gosub *setword2		// baudrate(600/1200)
+a=3400:gosub *setword2		// no sound部の時間(ms)
+a=3400:gosub *setword2		// ピー音の時間(ms)
+a=0:gosub *setlong2			// ベタイメージ先頭からのoffset
+a=rawsize:gosub *setlong2	// ベタData Size
+a=rawsize:gosub *setlong2	// 最後の4byteにベタイメージsize
+return
+//----
+*dumpcls
+bx = 200
+by = 300
+color 0,32,32
+boxf bx,by,bx+(22*16)+60,by+360
+return
+//----
+*dump
+if (dumpofs<0):dumpofs=0
+w=22
+h=40
+for i,0,rawsize
+	tmp = peek(binbuff,i+dumpofs)
+	x = (i \ 16)*w+bx+60
+	y = int(i/16)*h+by
+	if (y>=(300+360)):_break
+	color 80,80,50
+	line x,y,x+w,y
+	line x,y,x,y+h
+	color 255,255,0
+	if((i \ 16)==0){
+		pos bx,y
+		print "[$"+strf("%04X",i+dumpofs)+"]"
+	}
+	pos x,y
+	if(pulsetype > 0)and(tmp < 32){
+		print "_"
+	}else{	
+		print pc6table(tmp)
+	}
+	color 0,255,255
+	pos x,y+(h/2)
+	print strf("%02X",tmp)
+next
+return
+//-------long
+*getlong2
+a = peek(binbuff,binptr) :binptr++
+a += (peek(binbuff,binptr) << 8):binptr++
+a += (peek(binbuff,binptr) << 16):binptr++
+a += (peek(binbuff,binptr) << 24):binptr++
+return
+//-------word
+*getword2
+a = peek(binbuff,binptr) :binptr++
+a += (peek(binbuff,binptr) << 8):binptr++
+return
+//-------byte
+*getbyte2
+a = peek(binbuff,binptr) :binptr++
+return
+//-------long
+*setlong2
+poke binbuff,binptr,(a & 255):	binptr++
+poke binbuff,binptr,((a >> 8) & 255):binptr++
+poke binbuff,binptr,((a >> 16) & 255):binptr++
+poke binbuff,binptr,((a >> 24) & 255):binptr++
+return
+//-------word
+*setword2
+poke binbuff,binptr,(a & 255):	binptr++
+poke binbuff,binptr,((a >> 8) & 255):binptr++
+return
+//-------byte
+*setbyte2
+poke binbuff,binptr,(a & 255):	binptr++
+return
+
+// P6  binary [D3 x10Byte][name 6Byte][data]
+// MSX binary [header][D3 x10Byte][name 6Byte][header][data]
+// MSX binary [header][D0 x10Byte][name 6Byte][header][START_ADD][END_ADD][RUN_ADD][data]
+
+//----binary -> WAV
+*bin2wav
+dialog "*",16,"file"
+if(stat!=1):return
+gosub *clearlog
+txt="start"
+gosub *addlog
+gosub *dumpcls
+gosub *busyon
+sdim binbuff,binbufmax
+binname = refstr
+if (instr(binname,0,".wav")>0)or(instr(binname,0,".WAV")>0){
+	dialog "please select 'bin' or 'cas' file(can't read WAV)."
+	return
+}
+bload binname,binbuff	//open binary data
+rawsize = strsize	//binary data size
+gosub *dump
+txt = "load '"+binname+"' "+str(rawsize)+"Bytes"
+gosub *addlog
+
+if (instr(fname,0,".p6t")>0) or (instr(fname,0,".P6T")>0) {
+	rawsizebak = rawsize
+	gosub *p6t_load	//fix data size
+	dialog "delete footer("+str(rawsizebak-rawsize)+"Bytes)"
+}
+
+gosub *getpulsetype
+if(pulsetype < 2){	// 1200bps
+	srchz = 22050	//sampling frequency[sample/sec]
+}else{				// 2400bps
+	srchz = 44100	//sampling frequency[sample/sec]
+}
+if(pulsetype==0){	// PC-6001
+	longheader = 3.4
+	shortheader= 1.0
+}else{				// MSX
+	longheader = 6.7
+	shortheader= 1.7
+}
+// WAV file header
+headersize = 44
+txt = "RIFF":gosub *settxt				//+0:RIFF     
+a=0:gosub *setlong						//+4:filesize
+txt="WAVE":gosub *settxt				//+8:WAVE      
+txt="fmt ":gosub *settxt				//+12:fmt      
+fmtsize=16:a=fmtsize:gosub *setlong		//+16:fmtsize
+fmtid=1:a=fmtid:gosub *setword			//+20:fmtid
+channel=1:a=channel:gosub *setword		//+22:cahnnel
+a=srchz:gosub *setlong					//+24:sampling frequency
+byteps = srchz:a=byteps:gosub *setlong	//+28:byte/sec
+blocksize=1:a=blocksize:gosub *setword	//+32:blocksize
+databit=8:a=databit:gosub *setword		//+34:databit(8/16)
+txt = "data":gosub *settxt   			//+36:data    
+datalen = 0:a = datalen:gosub *setlong	//+40:Data Size
+
+ptr = 0		// WAV buffer pointer
+binptr = 0	// binary buffer pointer
+binptr = instr(binbuff,binptr,str_d3)	// find Marker(and skip header)
+if(binptr < 0){
+	txt= "not found Marker(D3)."
+	gosub *addlog
+	gosub *busyoff
+	return
+}
+
+hz = 0
+pulsesize = int(0.5*srchz)
+gosub *setpulse		//no sound 0.5sec
+
+hz = hz_pi
+pulsesize = int(longheader*srchz)
+gosub *setpulse		// long header
+
+datalen = 16
+gosub *setpulse1byte	// d3 + filename
+
+if(pulsetype > 0){ //MSX
+	i = instr(binbuff,binptr,str_header)	// find header
+	if(i < 0){
+		txt="not found header"
+		gosub *addlog
+	}else{
+		binptr = i+8		// skip header
+	}
+	hz = 0
+	pulsesize = int(0.5*srchz)
+	gosub *setpulse		//no sound 0.5sec
+}
+hz = hz_pi
+pulsesize = int(shortheader*srchz)
+gosub *setpulse		// short header
+
+datalen = rawsize-binptr
+gosub *setpulse1byte	// data
+
+wavfilesize = ptr
+datalen = wavfilesize - headersize
+ptr = 4:a = wavfilesize-8:gosub *setlong	//fix file size
+ptr = 40:a = datalen:gosub *setlong			//fix Data Size
+gosub *status 
+gosub *drawgraph
+txt="end"
+gosub *addlog
+gosub *busyoff
+sdim binbuff,1
+return
+//----
+*setpulse1byte
+repeat
+	if(datalen == 0):break
+	if(binptr >= rawsize):break
+	hz = hz_ga
+	pulsesize = int(srchz/hz_ga)	// example 22050/1200 = 18
+	gosub *setpulse		//startbit(0)
+
+	workbyte = peek(binbuff,binptr)	// read 1 Byte
+	binptr++
+	for bitcnt,0,8
+		if ((workbyte & (1<<bitcnt))==0){
+			hz = hz_ga	//0
+		}else{
+			hz = hz_pi	//1
+		}
+		gosub *setpulse
+	next
+	pulsesize = int(stopbit*srchz/hz_ga)	//stopbit(1) x3
+	hz = hz_pi
+	gosub *setpulse
+	datalen--
+loop
+return
+//---- writing pulse to wavbuff
+*setpulse
+vol = 127	// volume
+for j,0,pulsesize
+	if (hz==0){		// no sound
+		tmp = 0
+	}else{
+		pulsecnt = srchz/hz  // datacount/pulse
+		deg = (j*360/pulsecnt) \ 360
+		if (deg < 180){
+			tmp = -vol
+		}else{
+			tmp = vol
+		}
+	}
+	tmp += 128
+	poke wavbuff,ptr,int(tmp)
+	ptr++
+next
+return
+//----
+*p6t_load
+binptr = rawsize-4	// image size(4Byte)
+gosub *getlong2
+rawsize = a		//image size
+return //以下の処理を省略
+
+binptr = rawsize				// フッタの開始位置
+gosub *getword2					// 0x3650(36="6" 50="P") "P6"
+gosub *getbyte2:p6t_ver=a		// P6T形式のバージョン
+gosub *getbyte2:p6t_dbnum=a		// DATA block数
+gosub *getbyte2:p6t_start=a		// オートスタートフラグ(0:無効 / 1:有効)
+gosub *getbyte2:p6t_basic=a		// BASIC mode
+gosub *getbyte2:p6t_page=a		// page
+gosub *getword2:p6t_askey=a		// オートスタートコマンド文字数
+for i,0,p6t_askey
+	gosub *getbyte2
+next
+gosub *getword:p6t_exhead=a		// 拡張情報size
+for i,0,p6t_exhead
+	gosub *getbyte2
+next
+//ここからDATA block
+gosub *getword2		//DATA block 0x4954(49="I",54="T") "TI"
+gosub *getbyte2		// ID番号(DATA blockを関連付け)
+for i,0,16
+	gosub *getbyte2	// データ名(15文字+'00H')
+next
+gosub *getword2		// baudrate(600/1200)
+gosub *getword2		// no sound部の時間(ms)
+gosub *getword2		// ピー音の時間(ms)
+gosub *getlong2  	// ベタイメージ先頭からのoffset
+gosub *getlong2		// Data Size
+return
+
+//----
+*initstrval
+fname="noname"
+appname = "TapeTool "
+
+// MSX header 8 Byte(1F A6 DE BA CC 13 7D 74)
+sdim str_header,9
+poke str_header,0,0x1F
+poke str_header,1,0xA6
+poke str_header,2,0xDE
+poke str_header,3,0xBA
+poke str_header,4,0xCC
+poke str_header,5,0x13
+poke str_header,6,0x7D
+poke str_header,7,0x74
+poke str_header,8,0
+
+// D3 marker
+sdim str_d3,11
+for i,0,10
+	poke str_d3,i,0xD3
+next
+poke str_d3,10,0
+
+//
+sdim pc6table,2,0xFF	// chatacter table
+pc6table(0x00) = " " 
+pc6table(0x01) = "月" 
+pc6table(0x02) = "火" 
+pc6table(0x03) = "水" 
+pc6table(0x04) = "木"
+pc6table(0x05) = "金"
+pc6table(0x06) = "土"
+pc6table(0x07) = "日"
+pc6table(0x08) = "年"
+pc6table(0x09) = "円"
+pc6table(0x0a) = "時"
+pc6table(0x0b) = "分"
+pc6table(0x0c) = "秒"
+pc6table(0x0d) = "百"
+pc6table(0x0e) = "千"
+pc6table(0x0f) = "万"
+pc6table(0x10) = "π "
+pc6table(0x11) = "┴"
+pc6table(0x12) = "┬"
+pc6table(0x13) = "┤"
+pc6table(0x14) = "├"
+pc6table(0x15) = "┼"
+pc6table(0x16) = "│"
+pc6table(0x17) = "─"
+pc6table(0x18) = "┌"
+pc6table(0x19) = "┐"
+pc6table(0x1a) = "└"
+pc6table(0x1b) = "┘"
+pc6table(0x1c) = "×"
+pc6table(0x1d) = "大"
+pc6table(0x1e) = "中"
+pc6table(0x1f) = "小"
+pc6table(0x20) = "　"
+pc6table(0x21) = "！"
+pc6table(0x22) = "”"
+pc6table(0x23) = "＃"
+pc6table(0x24) = "＄"
+pc6table(0x25) = "％"
+pc6table(0x26) = "＆"
+pc6table(0x27) = "’"
+pc6table(0x28) = "（"
+pc6table(0x29) = "）"
+pc6table(0x2a) = "＊"
+pc6table(0x2b) = "＋"
+pc6table(0x2c) = "，"
+pc6table(0x2d) = "－"
+pc6table(0x2e) = "．"
+pc6table(0x2f) = "／"
+pc6table(0x30) = "０"
+pc6table(0x31) = "１"
+pc6table(0x32) = "２"
+pc6table(0x33) = "３"
+pc6table(0x34) = "４"
+pc6table(0x35) = "５"
+pc6table(0x36) = "６"
+pc6table(0x37) = "７"
+pc6table(0x38) = "８"
+pc6table(0x39) = "９"
+pc6table(0x3a) = "："
+pc6table(0x3b) = "；"
+pc6table(0x3c) = "＜"
+pc6table(0x3d) = "＝"
+pc6table(0x3e) = "＞"
+pc6table(0x3f) = "?"
+pc6table(0x40) = "@"
+pc6table(0x41) = "A"
+pc6table(0x42) = "B"
+pc6table(0x43) = "C"
+pc6table(0x44) = "D"
+pc6table(0x45) = "E"
+pc6table(0x46) = "F"
+pc6table(0x47) = "G"
+pc6table(0x48) = "H"
+pc6table(0x49) = "I"
+pc6table(0x4a) = "J"
+pc6table(0x4b) = "K"
+pc6table(0x4c) = "L"
+pc6table(0x4d) = "M"
+pc6table(0x4e) = "N"
+pc6table(0x4f) = "O"
+pc6table(0x50) = "P"
+pc6table(0x51) = "Q"
+pc6table(0x52) = "R"
+pc6table(0x53) = "S"
+pc6table(0x54) = "T"
+pc6table(0x55) = "U"
+pc6table(0x56) = "V"
+pc6table(0x57) = "W"
+pc6table(0x58) = "X"
+pc6table(0x59) = "Y"
+pc6table(0x5a) = "Z"
+pc6table(0x5b) = "["
+pc6table(0x5c) = "\"
+pc6table(0x5d) = "]"
+pc6table(0x5e) = "^"
+pc6table(0x5f) = "_"
+pc6table(0x60) = " "
+pc6table(0x61) = "a"
+pc6table(0x62) = "b"
+pc6table(0x63) = "c"
+pc6table(0x64) = "d"
+pc6table(0x65) = "e"
+pc6table(0x66) = "f"
+pc6table(0x67) = "g"
+pc6table(0x68) = "h"
+pc6table(0x69) = "i"
+pc6table(0x6a) = "j"
+pc6table(0x6b) = "k"
+pc6table(0x6c) = "l"
+pc6table(0x6d) = "m"
+pc6table(0x6e) = "n"
+pc6table(0x6f) = "o"
+pc6table(0x70) = "p"
+pc6table(0x71) = "q"
+pc6table(0x72) = "r"
+pc6table(0x73) = "s"
+pc6table(0x74) = "t"
+pc6table(0x75) = "u"
+pc6table(0x76) = "v"
+pc6table(0x77) = "w"
+pc6table(0x78) = "x"
+pc6table(0x79) = "y"
+pc6table(0x7a) = "z"
+pc6table(0x7b) = "{"
+pc6table(0x7c) = "|"
+pc6table(0x7d) = "}"
+pc6table(0x7e) = "~"
+pc6table(0x7f) = "　"
+pc6table(0x80) = "◆" //スペード
+pc6table(0x81) = "◆" //ハート
+pc6table(0x82) = "◆" //クラブ
+pc6table(0x83) = "◆" //ダイヤ
+pc6table(0x84) = "〇"
+pc6table(0x85) = "●"
+pc6table(0x86) = "を"
+pc6table(0x87) = "ぁ"
+pc6table(0x88) = "ぃ"
+pc6table(0x89) = "ぅ"
+pc6table(0x8a) = "ぇ"
+pc6table(0x8b) = "ぉ"
+pc6table(0x8c) = "ゃ"
+pc6table(0x8d) = "ゅ"
+pc6table(0x8e) = "ょ"
+pc6table(0x8f) = "っ"
+pc6table(0x90) = "　"
+pc6table(0x91) = "あ"
+pc6table(0x92) = "い"
+pc6table(0x93) = "う"
+pc6table(0x94) = "え"
+pc6table(0x95) = "お"
+pc6table(0x96) = "か"
+pc6table(0x97) = "き"
+pc6table(0x98) = "く"
+pc6table(0x99) = "け"
+pc6table(0x9a) = "こ"
+pc6table(0x9b) = "さ"
+pc6table(0x9c) = "し"
+pc6table(0x9d) = "す"
+pc6table(0x9e) = "せ"
+pc6table(0x9f) = "そ"
+pc6table(0xa0) = "　"
+pc6table(0xa1) = "。"
+pc6table(0xa2) = "「"
+pc6table(0xa3) = "」"
+pc6table(0xa4) = "、"
+pc6table(0xa5) = "・"
+pc6table(0xa6) = "ヲ"
+pc6table(0xa7) = "ァ"
+pc6table(0xa8) = "ィ"
+pc6table(0xa9) = "ゥ"
+pc6table(0xaa) = "ェ"
+pc6table(0xab) = "ォ"
+pc6table(0xac) = "ャ"
+pc6table(0xad) = "ュ"
+pc6table(0xae) = "ョ"
+pc6table(0xaf) = "ッ"
+pc6table(0xb0) = "ー"
+pc6table(0xb1) = "ア"
+pc6table(0xb2) = "イ"
+pc6table(0xb3) = "ウ"
+pc6table(0xb4) = "エ"
+pc6table(0xb5) = "オ"
+pc6table(0xb6) = "カ"
+pc6table(0xb7) = "キ"
+pc6table(0xb8) = "ク"
+pc6table(0xb9) = "ケ"
+pc6table(0xba) = "コ"
+pc6table(0xbb) = "サ"
+pc6table(0xbc) = "シ"
+pc6table(0xbd) = "ス"
+pc6table(0xbe) = "セ"
+pc6table(0xbf) = "ソ"
+pc6table(0xc0) = "タ"
+pc6table(0xc1) = "チ"
+pc6table(0xc2) = "ツ"
+pc6table(0xc3) = "テ"
+pc6table(0xc4) = "ト"
+pc6table(0xc5) = "ナ"
+pc6table(0xc6) = "ニ"
+pc6table(0xc7) = "ヌ"
+pc6table(0xc8) = "ネ"
+pc6table(0xc9) = "ノ"
+pc6table(0xca) = "ハ"
+pc6table(0xcb) = "ヒ"
+pc6table(0xcc) = "フ"
+pc6table(0xcd) = "ヘ"
+pc6table(0xce) = "ホ"
+pc6table(0xcf) = "マ"
+pc6table(0xd0) = "ミ"
+pc6table(0xd1) = "ム"
+pc6table(0xd2) = "メ"
+pc6table(0xd3) = "モ"
+pc6table(0xd4) = "ヤ"
+pc6table(0xd5) = "ユ"
+pc6table(0xd6) = "ヨ"
+pc6table(0xd7) = "ラ"
+pc6table(0xd8) = "リ"
+pc6table(0xd9) = "ル"
+pc6table(0xda) = "レ"
+pc6table(0xdb) = "ロ"
+pc6table(0xdc) = "ワ"
+pc6table(0xdd) = "ン"
+pc6table(0xde) = "゛"
+pc6table(0xdf) = "゜"
+pc6table(0xe0) = "た"
+pc6table(0xe1) = "ち"
+pc6table(0xe2) = "つ"
+pc6table(0xe3) = "て"
+pc6table(0xe4) = "と"
+pc6table(0xe5) = "な"
+pc6table(0xe6) = "に"
+pc6table(0xe7) = "ぬ"
+pc6table(0xe8) = "ね"
+pc6table(0xe9) = "の"
+pc6table(0xea) = "は"
+pc6table(0xeb) = "ひ"
+pc6table(0xec) = "ふ"
+pc6table(0xed) = "へ"
+pc6table(0xee) = "ほ"
+pc6table(0xef) = "ま"
+pc6table(0xf0) = "み"
+pc6table(0xf1) = "む"
+pc6table(0xf2) = "め"
+pc6table(0xf3) = "も"
+pc6table(0xf4) = "や"
+pc6table(0xf5) = "ゆ"
+pc6table(0xf6) = "よ"
+pc6table(0xf7) = "ら"
+pc6table(0xf8) = "り"
+pc6table(0xf9) = "る"
+pc6table(0xfa) = "れ"
+pc6table(0xfb) = "ろ"
+pc6table(0xfc) = "わ"
+pc6table(0xfd) = "ん"
+pc6table(0xfe) = "　"
+pc6table(0xff) = "　"
+return
+
