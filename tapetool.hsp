@@ -958,6 +958,7 @@ for i,pstart,pend+1
 next
 
 binptr = (int(binptr/128))*128	// fix data size
+if(binptr<128):binptr=128
 txt= "binary size "+str(binptr)+"Bytes"
 gosub *addlog
 txt="end"
@@ -1152,7 +1153,10 @@ if(pulsetype==0){	// PC-6001
 	shortheader= 1.7
 }
 // WAV file header
+ptr = 0		// WAV buffer pointer
+binptr = 0	// binary buffer pointer
 headersize = 44
+
 txt = "RIFF":gosub *settxt				//+0:RIFF     
 a=0:gosub *setlong						//+4:filesize
 txt="WAVE":gosub *settxt				//+8:WAVE      
@@ -1167,8 +1171,6 @@ databit=8:a=databit:gosub *setword		//+34:databit(8/16)
 txt = "data":gosub *settxt   			//+36:data    
 datalen = 0:a = datalen:gosub *setlong	//+40:Data Size
 
-ptr = 0		// WAV buffer pointer
-binptr = 0	// binary buffer pointer
 binptr = instr(binbuff,binptr,str_d3)	// find Marker(and skip header)
 if(binptr < 0){
 	txt= "not found Marker(D3)."
